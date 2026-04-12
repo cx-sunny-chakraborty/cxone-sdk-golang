@@ -1,0 +1,73 @@
+#############################################################################
+## The release job creates release tags based on commit messages.
+## Executed on push
+#############################################################################
+name: 'Release'
+
+on:
+  push:
+    branches:
+      - 'main'
+      
+jobs:
+  release:
+    name: 'Create release'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write 
+      issues: write 
+      pull-requests: write 
+    steps:
+      # Checkout the repository with full history and tags
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          fetch-tags: true
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      # Set up Go
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.24'
+
+      # Verify source code
+      - name: Verify source code
+        uses: golangci/golangci-lint-action@v8
+        with:
+          version: v2.1
+
+      # Install semantic-release and required plugins
+      - name: Install semantic-release and plugins
+        run: |
+          npm install --save-dev semantic-release \
+            @semantic-release/git \
+            @semantic-release/changelog \
+            @semantic-release/github \
+            conventional-changelog-conventionalcommits
+
+      # Run semantic-release
+      - name: Run semantic-release
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: npx semantic-release 
+
+      - name: Get latest tag
+        id: get_tag
+        run: |
+          LATEST_TAG=$(git describe --tags `git rev-list --tags --max-count=1`)
+          echo "Latest tag is $LATEST_TAG"
+          echo "LATEST_TAG=$LATEST_TAG" >> $GITHUB_ENV
+          git clean -fdx
+
+      # Build & attach binaries
+      - name: Build & attach binaries
+        uses: goreleaser/goreleaser-action@v6
+        with:
+          distribution: goreleaser
+          version: latest
+          args: release --clean --skip=announce --verbose
+        env:
+          GORELEASER_CURRENT_TAG: ${{ env.LATEST_TAG }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

@@ -1,0 +1,41 @@
+    name: "{{ .ProjectName }}"
+
+builds:
+  - id: default
+    main: .
+    goos:
+      - linux
+      - windows
+    goarch:
+      - amd64
+    binary: "{{ .ProjectName }}"
+  - id: static
+    main: .
+    goos:
+      - linux
+    goarch:
+      - amd64
+    binary: "{{ .ProjectName }}-static"
+    env:
+      - CGO_ENABLED=0
+
+archives:
+  - id: zips-default
+    formats: zip    
+    ids: [default]
+    name_template: "{{ .ProjectName }}_{{ .Os }}_{{ .Arch }}"
+  - id: bins-default
+    ids: [default]
+    formats: binary
+    name_template: "{{ .Binary }}"
+  - id: zips-static
+    formats: zip    
+    ids: [static]
+    name_template: "{{ .ProjectName }}_{{ .Os }}_{{ .Arch }}_static"
+  - id: bins-static
+    ids: [static]
+    formats: binary
+    name_template: "{{ .Binary }}"
+
+checksum:
+  name_template: "checksums.txt"

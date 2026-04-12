@@ -1,0 +1,14 @@
+# My CxOne Tool
+
+Built with the [Checkmarx One Go SDK](https://github.com/checkmarx-open-labs/cxone-sdk-golang).
+
+## Usage
+
+```sh
+export CX_TENANT=your-tenant CX_API_KEY=your-key CX_REGION=US
+go run .
+```
+
+## Development
+
+See [.devenv/README.md](.devenv/README.md) for development environment setup and commit conventions.

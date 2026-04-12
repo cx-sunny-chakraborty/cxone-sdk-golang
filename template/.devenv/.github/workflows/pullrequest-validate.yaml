@@ -1,0 +1,64 @@
+#############################################################################
+## The Validate job verifies pull-requests for protected branches for validation
+## Executed on pull requests
+#############################################################################
+name: 'Validate'
+
+on:
+  pull_request:
+    branches:
+      - 'main'
+      - 'dev'
+
+jobs:
+  ### validate source-code (lint)
+  format:
+    name: 'Check format (PR)'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write 
+      issues: write 
+      pull-requests: write 
+    steps:
+      ### checkout the code (don't need submodules nor tags)
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v6
+        with:
+          go-version: '1.24'
+
+      - name: 'Verify Source Code'
+        uses: golangci/golangci-lint-action@v8
+        with:
+          version: v2.1
+
+  ### perform tests
+  test:
+    needs: [format]
+    name: 'Test (PR)'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write 
+      issues: write 
+      pull-requests: write 
+    steps:
+      - uses: actions/checkout@v3
+      - uses: actions/setup-go@v3
+        with:
+          go-version: '1.24'
+      - run: go test -v ./...
+
+  ### test for security
+  security:
+    needs: [format,test]
+    name: 'Test security (PR)'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write 
+      issues: write 
+      pull-requests: write 
+    steps:
+      - name: 'Nothing to process'
+        shell: bash
+        run: |
+          echo "skipped"

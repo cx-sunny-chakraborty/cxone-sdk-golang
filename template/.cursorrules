@@ -1,0 +1,61 @@
+; Cursor rules for projects using the Checkmarx One Go SDK (cxone-sdk-golang)
+
+; --- Client Lifecycle ---
+; Always construct the client with the builder: cxone.NewClient().Region(...).Tenant(...).AgentName(...).APIKey(...).Build()
+; Always defer client.Close() immediately after Build() succeeds
+; The client is safe to share across goroutines — create one, reuse it, close at shutdown
+; Never use a client after Close()
+; Required builder fields: Region (typed constant), Tenant, AgentName, and one of APIKey or OAuth
+
+; --- Two-Layer Architecture ---
+; Prefer the high-level workflow layer (client.Scans(), client.Projects(), client.Users(), client.Presets(), etc.)
+; Use client.Advanced() only when the workflow layer does not cover the endpoint you need
+; Both layers return strongly-typed models — never raw JSON or map[string]any
+
+; --- Context & Cancellation ---
+; Every SDK call takes context.Context as its first argument — always pass one
+; Use context.WithTimeout for per-call timeouts (client default is 60s)
+; Never use context.TODO() in production code
+
+; --- Error Handling ---
+; Use errors.As to discriminate SDK error types:
+;   *cxerrors.ConfigurationError — bad config
+;   *cxerrors.AuthError — token failed
+;   *cxerrors.CommunicationError — retries exhausted / transport error
+;   *cxerrors.ResponseError — unexpected status / unparseable body
+;   *cxerrors.ScanError — scan workflow failure
+;   *cxerrors.ReportError — report workflow failure
+; Never swallow errors — they carry correlation IDs for server-side tracing
+
+; --- Auth & Retry ---
+; Auth is lazy — no token fetched until first API call
+; 401 triggers automatic token refresh + one transparent retry (you don't handle this)
+; SDK retries 3 times with randomized backoff on 5xx and transient errors
+; Do NOT add your own retry wrapper around SDK calls
+
+; --- Workflow Patterns ---
+; Fluent builders for complex operations: client.Scans().NewScan(repo).ForBranch("main").WithEngines("sast").Start(ctx)
+; Inspectors for state: insp.Executing(), insp.Successful(), insp.Failed(), insp.StateMessage()
+; Waiters for polling: scans.WaitUntilComplete(ctx, insp, opts) — handles cancellation + terminal states
+; Readers for cached catalogs: client.Presets(), client.Users().NewReader(), client.Roles().NewReader()
+; Async factories for domain objects: wfprojects.FromProjectID(ctx, backend, id) — no I/O in constructors
+
+; --- Observability ---
+; Wire Logger/Metrics/Tracer via the builder — defaults are no-ops
+; Structured events: request.start, request.end, request.retry, auth.refresh, scan.poll
+
+; --- Models & Types ---
+; Import models from github.com/checkmarx-open-labs/cxone-sdk-golang/models
+; Use typed Region constants (cxone.RegionUS, cxone.RegionEU, etc.) — never hardcode URLs
+; Unknown response fields are tolerated for forward compatibility
+
+; --- Security ---
+; The SDK redacts bearer tokens and secrets from all errors/logs/traces
+; Never log credentials or circumvent the redaction
+
+; --- Anti-Patterns ---
+; Do NOT create a new client per request
+; Do NOT add retry/backoff wrappers
+; Do NOT parse raw HTTP responses — use typed models
+; Do NOT hardcode Checkmarx One hostnames
+; Do NOT ignore errors from client.Close()

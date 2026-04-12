@@ -1,0 +1,63 @@
+.devenv
+.build
+
+# C extensions
+*.so
+
+# Dev (Cx)
+checkcode.bat
+checkcode.cmd
+checkcode.sh
+.vscode/
+*.code-workspace
+.dist/
+config.yaml
+application.yaml
+_config.yaml
+_application.yaml
+logs/
+data/
+queries/
+scanner/
+test*/
+
+# Distribution / packaging
+build/
+dist/
+downloads/
+lib/
+lib64/
+parts/
+sdist/
+var/
+.installed.cfg
+MANIFEST
+*.exe
+
+# Unit test / coverage reports
+htmlcov/
+.tox/
+.nox/
+.coverage
+.coverage.*
+.cache
+nosetests.xml
+coverage.xml
+*.cover
+.hypothesis/
+cover/
+
+# Translations
+*.mo
+*.pot
+
+# Environments
+.env
+env/
+venv/
+ENV/
+env.bak/
+venv.bak/
+
+# mkdocs documentation
+/site

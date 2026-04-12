@@ -1,0 +1,24 @@
+# Reference checkout — not part of this module.
+# ast-cli is a separate project (github.com/checkmarx/ast-cli) sitting in this
+# directory only as read-only reference material while the SDK is being built.
+ast-cli/
+
+# Compiled example binaries
+/analytics-dashboard
+/import-migration
+/role-assignment
+/users-provisioning
+
+# Go build artifacts
+*.exe
+*.test
+*.out
+*.prof
+/coverage.txt
+/dist/
+/bin/
+
+# Editors / OS
+.idea/
+.vscode/
+.DS_Store
