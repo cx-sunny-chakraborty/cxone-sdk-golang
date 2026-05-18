@@ -424,3 +424,97 @@ func (c *captureLogger) Debug(_ context.Context, msg string, _ ...observability.
 func (c *captureLogger) Info(_ context.Context, msg string, _ ...observability.Field)  { c.record(msg) }
 func (c *captureLogger) Warn(_ context.Context, msg string, _ ...observability.Field)  { c.record(msg) }
 func (c *captureLogger) Error(_ context.Context, msg string, _ ...observability.Field) { c.record(msg) }
+
+// TestExecutorBodyReadableAfterDo guards against a regression where
+// Executor.Do derived a per-call timeout context with defer cancel(). The
+// returned Response.Body was bound to that context, so io.ReadAll after Do
+// returned failed with "context canceled" even though headers had arrived
+// cleanly. Every JSON/text endpoint hit this because the body is always
+// read after Do returns.
+//
+// The test server flushes headers, then sleeps before flushing the body —
+// this models the real-world case where the body has not yet arrived by
+// the time Do() returns, so the body Read actually has to wait on the
+// request context. A pre-buffered small body would mask the bug.
+func TestExecutorBodyReadableAfterDo(t *testing.T) {
+	const want = `{"projects":[{"id":"1"},{"id":"2"}]}`
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		if f, ok := w.(http.Flusher); ok {
+			f.Flush()
+		}
+		time.Sleep(30 * time.Millisecond)
+		_, _ = io.WriteString(w, want)
+	}))
+	defer srv.Close()
+
+	exec := NewExecutor(Config{
+		HTTPClient:    srv.Client(),
+		Authenticator: &stubAuth{},
+		CorrelationID: "corr-body",
+		Timeout:       60 * time.Second, // matches the SDK default
+		RetryPolicy:   fastRetry(),
+	})
+	resp, err := exec.Do(context.Background(), &Request{Method: "GET", URL: srv.URL + "/api/x"})
+	if err != nil {
+		t.Fatalf("Do: %v", err)
+	}
+	defer resp.Body.Close()
+
+	got, err := io.ReadAll(resp.Body)
+	if err != nil {
+		t.Fatalf("read body after Do returned: %v", err)
+	}
+	if string(got) != want {
+		t.Errorf("body = %q, want %q", string(got), want)
+	}
+}
+
+// TestExecutorPerCallTimeoutCancelsSlowBody confirms the per-call timeout
+// is still enforced even though Do no longer cancels eagerly on return:
+// a body that takes longer than req.Timeout to read must surface the
+// deadline exceeded.
+func TestExecutorPerCallTimeoutCancelsSlowBody(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		flusher, _ := w.(http.Flusher)
+		// Send a byte so headers + first chunk land, then stall past the
+		// per-call timeout so the body Read trips the deadline.
+		_, _ = w.Write([]byte("x"))
+		if flusher != nil {
+			flusher.Flush()
+		}
+		select {
+		case <-r.Context().Done():
+		case <-time.After(2 * time.Second):
+		}
+	}))
+	defer srv.Close()
+
+	exec := NewExecutor(Config{
+		HTTPClient:    srv.Client(),
+		Authenticator: &stubAuth{},
+		CorrelationID: "corr-slow",
+		Timeout:       time.Hour,
+		RetryPolicy:   retry.Policy{MaxAttempts: 1, MaxDelay: 0},
+	})
+	resp, err := exec.Do(context.Background(), &Request{
+		Method:  "GET",
+		URL:     srv.URL + "/api/slow",
+		Timeout: 50 * time.Millisecond,
+	})
+	if err != nil {
+		t.Fatalf("Do: %v", err)
+	}
+	defer resp.Body.Close()
+
+	_, readErr := io.ReadAll(resp.Body)
+	if readErr == nil {
+		t.Fatal("expected body read to fail when per-call timeout fires mid-stream")
+	}
+	if !errors.Is(readErr, context.DeadlineExceeded) &&
+		!strings.Contains(strings.ToLower(readErr.Error()), "deadline") {
+		t.Errorf("expected deadline error, got %v", readErr)
+	}
+}
