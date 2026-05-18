@@ -166,6 +166,7 @@ The [`examples/`](./examples/) directory ships runnable programs that demonstrat
 | [`role-assignment`](./examples/role-assignment/) | RoleReader, composite resolution, ast-app client roles |
 | [`analytics-dashboard`](./examples/analytics-dashboard/) | Severity KPIs, MTTR, most-common vulnerabilities |
 | [`import-migration`](./examples/import-migration/) | List imports, start import, poll with ImportInspector |
+| [`scan-comparison`](./examples/scan-comparison/) | Diff two scans into new/resolved/recurrent counts by severity, plus not-exploitable summary |
 
 Run any example:
 
@@ -256,6 +257,39 @@ group, _ := client.Groups().GetOrCreateByName(ctx, "my-team")
 ```go
 repo, _ := client.Projects().GetOrCreateByName(ctx, &models.Project{Name: "my-project"})
 repo, app, _ := client.Projects().GetOrCreateInApplicationByName(ctx, "my-project", "my-app")
+```
+
+### Scan Comparison
+
+Diff two scans into typed new/resolved/recurrent buckets by severity. The
+not-exploitable list is extracted from the new scan, grouped by query name.
+
+```go
+cmp, err := client.Scans().Compare(ctx, oldScanID, newScanID)
+if err != nil {
+    return err
+}
+fmt.Printf("HIGH: new=%d resolved=%d recurrent=%d\n",
+    cmp.BySeverity["HIGH"].New,
+    cmp.BySeverity["HIGH"].Resolved,
+    cmp.BySeverity["HIGH"].Recurrent)
+```
+
+Options: `WithIdentityKey(models.IdentityKeySimilarityID|IdentityKeyResultHash)`,
+`WithSeverities(...)`, `WithEngines(...)`, `WithProgress(cb)`. Default identity
+is `similarityId`, which matches the legacy CxSAST SOAP `GetScanCompareSummary`
+semantics.
+
+### Results
+
+```go
+all, _ := client.Results().ListAll(ctx, scanID, nil)
+notExp, _ := client.Results().ListByState(ctx, scanID, "NOT_EXPLOITABLE")
+
+for r, err := range client.Results().Iter(scanID, nil).All(ctx) {
+    if err != nil { return err }
+    // process r
+}
 ```
 
 ### Analytics

@@ -8,6 +8,7 @@ ast-cli/
 /import-migration
 /role-assignment
 /users-provisioning
+/scan-comparison
 
 # Go build artifacts
 *.exe
