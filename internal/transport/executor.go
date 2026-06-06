@@ -93,14 +93,28 @@ func (e *Executor) Do(ctx context.Context, req *Request) (*Response, error) {
 	}
 
 	// Apply per-call timeout (overrides client default).
+	//
+	// We deliberately do NOT defer cancel() here. The derived context is
+	// attached to the underlying *http.Request via http.NewRequestWithContext
+	// in sendOnce, so cancelling it would also cancel any in-flight reads of
+	// the response body — and the caller hasn't read the body yet by the
+	// time Do returns. On the success path we attach cancel to the returned
+	// Response.Body so it fires when the caller closes the body; on every
+	// error path we call cancel explicitly before returning so the timer
+	// goroutine is released.
 	timeout := req.Timeout
 	if timeout == 0 {
 		timeout = e.cfg.Timeout
 	}
+	var timeoutCancel context.CancelFunc
 	if timeout > 0 {
-		var cancel context.CancelFunc
-		ctx, cancel = context.WithTimeout(ctx, timeout)
-		defer cancel()
+		ctx, timeoutCancel = context.WithTimeout(ctx, timeout)
+	}
+	cancelTimeout := func() {
+		if timeoutCancel != nil {
+			timeoutCancel()
+			timeoutCancel = nil
+		}
 	}
 
 	// Open span for the whole funnel call.
@@ -114,6 +128,7 @@ func (e *Executor) Do(ctx context.Context, req *Request) (*Response, error) {
 	// Buffer the body once so retries can re-send it.
 	bodyBytes, err := readAll(req.Body)
 	if err != nil {
+		cancelTimeout()
 		return nil, &cxerrors.CommunicationError{
 			Method: req.Method, URL: sanitizedURL, Attempt: 1,
 			CorrelationID: e.cfg.CorrelationID,
@@ -224,6 +239,7 @@ func (e *Executor) Do(ctx context.Context, req *Request) (*Response, error) {
 	})
 
 	if err != nil {
+		cancelTimeout()
 		span.SetStatus(err)
 		// retry.Do returned the last retry-able error verbatim. Wrap as
 		// CommunicationError so callers always see the catalog type unless
@@ -243,7 +259,33 @@ func (e *Executor) Do(ctx context.Context, req *Request) (*Response, error) {
 			Cause:         err,
 		}
 	}
+
+	// Attach the per-call cancel to Response.Body.Close so the request
+	// context stays alive while the caller reads the body, but the timer
+	// goroutine is still released when the caller is done.
+	if timeoutCancel != nil && resp != nil && resp.Body != nil {
+		resp.Body = &bodyWithCancel{ReadCloser: resp.Body, cancel: cancelTimeout}
+	} else {
+		cancelTimeout()
+	}
 	return resp, nil
+}
+
+// bodyWithCancel wraps a response body so closing it also releases the
+// per-call timeout context's cancel function. Close is safe to call more
+// than once — the embedded cancelTimeout closure no-ops after the first
+// invocation.
+type bodyWithCancel struct {
+	io.ReadCloser
+	cancel func()
+}
+
+func (b *bodyWithCancel) Close() error {
+	err := b.ReadCloser.Close()
+	if b.cancel != nil {
+		b.cancel()
+	}
+	return err
 }
 
 // sendOnce builds and dispatches a single HTTP request. It runs the Before

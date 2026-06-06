@@ -17,6 +17,7 @@ import (
 	"github.com/checkmarx-open-labs/cxone-sdk-golang/internal/transport"
 	"github.com/checkmarx-open-labs/cxone-sdk-golang/models"
 	"github.com/checkmarx-open-labs/cxone-sdk-golang/observability"
+	"github.com/checkmarx-open-labs/cxone-sdk-golang/pagination"
 	wfaudit "github.com/checkmarx-open-labs/cxone-sdk-golang/workflows/audit"
 	wfclients "github.com/checkmarx-open-labs/cxone-sdk-golang/workflows/clients"
 	wfgroups "github.com/checkmarx-open-labs/cxone-sdk-golang/workflows/groups"
@@ -24,6 +25,7 @@ import (
 	wfpresets "github.com/checkmarx-open-labs/cxone-sdk-golang/workflows/presets"
 	wfprojects "github.com/checkmarx-open-labs/cxone-sdk-golang/workflows/projects"
 	wfreports "github.com/checkmarx-open-labs/cxone-sdk-golang/workflows/reports"
+	wfresults "github.com/checkmarx-open-labs/cxone-sdk-golang/workflows/results"
 	wfroles "github.com/checkmarx-open-labs/cxone-sdk-golang/workflows/roles"
 	wfscans "github.com/checkmarx-open-labs/cxone-sdk-golang/workflows/scans"
 	wfusers "github.com/checkmarx-open-labs/cxone-sdk-golang/workflows/users"
@@ -516,6 +518,46 @@ func (h *ScansHandle) Get(ctx context.Context, scanID string) (*wfscans.ScanInsp
 // upload-mode scans can use the shared connection pool.
 func (h *ScansHandle) NewScan(repo *wfprojects.ProjectRepoConfig) *wfscans.Invoker {
 	return wfscans.NewInvoker(h.backend, repo, h.client.httpClient)
+}
+
+// Compare diffs the results of two scans into new/resolved/recurrent counts
+// by severity and extracts the not-exploitable list from the new scan. See
+// [wfscans.Backend.Compare] for option details.
+func (h *ScansHandle) Compare(ctx context.Context, oldScanID, newScanID string, opts ...wfscans.CompareOption) (*models.ScanComparison, error) {
+	return h.backend.Compare(ctx, oldScanID, newScanID, opts...)
+}
+
+// Results returns the high-level results workflow handle. Use it to walk
+// scan results by scan id, with the cross-engine /api/results endpoint
+// surfaced as typed helpers.
+//
+//	rs, err := client.Results().ListByState(ctx, scanID, "NOT_EXPLOITABLE")
+func (c *Client) Results() *ResultsHandle {
+	return &ResultsHandle{
+		reader: wfresults.NewReader(&wfresults.Backend{Executor: c.executor, BaseURL: c.rootURL()}),
+	}
+}
+
+// ResultsHandle wraps the results workflow with method-style ergonomics.
+type ResultsHandle struct {
+	reader *wfresults.Reader
+}
+
+// ListAll iterates every result page for scanID and returns the flattened
+// slice. See [wfresults.Reader.ListAll].
+func (h *ResultsHandle) ListAll(ctx context.Context, scanID string, query url.Values) ([]*models.ScanResult, error) {
+	return h.reader.ListAll(ctx, scanID, query)
+}
+
+// ListByState is shorthand for [ResultsHandle.ListAll] with a "state" filter.
+func (h *ResultsHandle) ListByState(ctx context.Context, scanID, state string) ([]*models.ScanResult, error) {
+	return h.reader.ListByState(ctx, scanID, state)
+}
+
+// Iter returns an item-yielding iterator over the results matching scanID
+// plus the optional filters in query.
+func (h *ResultsHandle) Iter(scanID string, query url.Values) *pagination.Iterator[*models.ScanResult] {
+	return h.reader.Iter(scanID, query)
 }
 
 // ReportsHandle wraps the reports workflow with method-style ergonomics.
