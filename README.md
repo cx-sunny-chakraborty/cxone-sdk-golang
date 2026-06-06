@@ -425,7 +425,7 @@ go test -tags=integration ./tests/integration/...
 
 This project follows [Semantic Versioning](https://semver.org/). Breaking changes are major-version bumps only.
 
-**Current version:** `0.9.0-rc.1` (release candidate)
+**Current version:** `0.9.0`
 
 **Public API surface:** Everything reachable **without** importing a package whose path contains `/internal/`. Internal packages may change at any time without a major bump.
 
